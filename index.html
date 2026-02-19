@@ -514,6 +514,15 @@
             border-radius: 4px;
             font-size: 12px;
         }
+
+        .broker-note {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+            padding: 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -694,17 +703,23 @@
                                 <label class="input-label">Broker:</label>
                                 <select id="remoteBroker" class="input-field" onchange="handleRemoteBrokerChange()">
                                     <option value="broker.emqx.io:8083">broker.emqx.io (Global)</option>
+                                    <option value="broker.emqx.io:8084">broker.emqx.io (Secure - WSS)</option>
                                     <option value="test.mosquitto.org:8081">test.mosquitto.org</option>
+                                    <option value="test.mosquitto.org:8080">test.mosquitto.org (Secure)</option>
                                     <option value="broker.hivemq.com:8000">broker.hivemq.com</option>
                                     <option value="custom">Custom...</option>
                                 </select>
+                                <div class="broker-note" id="securityNote">
+                                    ⚠️ Trang đang chạy HTTPS, cần dùng WSS (cổng 8084, 8080)
+                                </div>
                             </div>
                             
                             <div id="customRemoteBroker" style="display: none;">
                                 <div class="input-group">
                                     <label class="input-label">Custom Broker:</label>
                                     <input type="text" id="customBroker" class="input-field" 
-                                           placeholder="broker.emqx.io:8083">
+                                           placeholder="broker.emqx.io:8084">
+                                    <small style="color:#666">Nếu trang HTTPS, dùng cổng WSS (thường 8084, 8080)</small>
                                 </div>
                             </div>
                         </div>
@@ -725,6 +740,7 @@
                                 <p><span class="status-dot offline" id="remoteStatusDot"></span> 
                                    Status: <span id="remoteStatusText">Disconnected</span></p>
                                 <p>Topic: <code id="remoteTopic">esp32cam/[id]/remote/image</code></p>
+                                <p>Protocol: <span id="remoteProtocol">-</span></p>
                             </div>
                         </div>
                         
@@ -913,8 +929,10 @@
             version: '6.0.0',
             defaultIp: window.location.hostname || '192.168.4.1',
             mqttBrokers: {
-                'broker.emqx.io:8083': 'broker.emqx.io',
-                'test.mosquitto.org:8081': 'test.mosquitto.org',
+                'broker.emqx.io:8083': 'broker.emqx.io (WS)',
+                'broker.emqx.io:8084': 'broker.emqx.io (WSS)',
+                'test.mosquitto.org:8081': 'test.mosquitto.org (WS)',
+                'test.mosquitto.org:8080': 'test.mosquitto.org (WSS)',
                 'broker.hivemq.com:8000': 'broker.hivemq.com'
             }
         };
@@ -963,6 +981,7 @@
                 case 'remote':
                     document.getElementById('remotePage').style.display = 'block';
                     document.querySelectorAll('.nav-link')[1].classList.add('active');
+                    updateSecurityNote();
                     break;
                 case 'settings':
                     document.getElementById('settingsPage').style.display = 'block';
@@ -995,6 +1014,17 @@
 
         function closeModal(modalId) {
             document.getElementById(modalId).style.display = 'none';
+        }
+
+        function updateSecurityNote() {
+            const note = document.getElementById('securityNote');
+            if (window.location.protocol === 'https:') {
+                note.innerHTML = '🔒 HTTPS detected - using WSS (secure WebSocket)';
+                note.style.color = '#28a745';
+            } else {
+                note.innerHTML = '⚠️ HTTP detected - using WS (insecure WebSocket)';
+                note.style.color = '#ff9800';
+            }
         }
 
         // ================= LOCAL STREAM FUNCTIONS =================
@@ -1175,11 +1205,22 @@
             }, 1000);
         }
 
-        // ================= REMOTE STREAM FUNCTIONS (4G/Internet) =================
+        // ================= REMOTE STREAM FUNCTIONS (4G/Internet) - FIXED VERSION =================
         function handleRemoteBrokerChange() {
             const select = document.getElementById('remoteBroker');
             const custom = document.getElementById('customRemoteBroker');
             custom.style.display = select.value === 'custom' ? 'block' : 'none';
+            
+            // Auto-select secure port if HTTPS
+            if (window.location.protocol === 'https:') {
+                if (select.value === 'broker.emqx.io:8083') {
+                    showToast('Switching to secure port 8084 for HTTPS', 'info');
+                    select.value = 'broker.emqx.io:8084';
+                } else if (select.value === 'test.mosquitto.org:8081') {
+                    showToast('Switching to secure port 8080 for HTTPS', 'info');
+                    select.value = 'test.mosquitto.org:8080';
+                }
+            }
         }
 
         function connectRemote() {
@@ -1200,11 +1241,28 @@
                 return;
             }
             
-            const [host, port] = broker.split(':');
-            const wsPort = port || '8083';
-            const wsUrl = `ws://${host}:${wsPort}`;
+            // Parse host and port
+            let host, port;
+            if (broker.includes(':')) {
+                [host, port] = broker.split(':');
+            } else {
+                host = broker;
+                port = window.location.protocol === 'https:' ? '8084' : '8083';
+            }
             
-            showToast('Connecting to MQTT...', 'info');
+            // Determine protocol based on page security
+            let wsProtocol;
+            if (window.location.protocol === 'https:') {
+                wsProtocol = 'wss://';
+                showToast('Using secure WebSocket (WSS)', 'info');
+            } else {
+                wsProtocol = 'ws://';
+                showToast('Using WebSocket (WS)', 'info');
+            }
+            
+            const wsUrl = `${wsProtocol}${host}:${port}`;
+            
+            showToast(`Connecting to ${wsUrl}...`, 'info');
             
             try {
                 if (state.mqttClient) {
@@ -1212,18 +1270,35 @@
                 }
                 
                 const clientId = 'web_remote_' + Math.random().toString(36).substring(7);
-                state.mqttClient = mqtt.connect(wsUrl, {
+                
+                const options = {
                     clientId: clientId,
                     keepalive: 60,
-                    reconnectPeriod: 5000
-                });
+                    reconnectPeriod: 5000,
+                    connectTimeout: 30000
+                };
+                
+                // Add protocol version
+                options.protocolVersion = 4; // MQTT 3.1.1
+                
+                console.log('Connecting with options:', options);
+                console.log('WebSocket URL:', wsUrl);
+                
+                state.mqttClient = mqtt.connect(wsUrl, options);
                 
                 state.mqttClient.on('connect', () => {
                     state.mqttConnected = true;
                     
                     // Subscribe to remote image topic
                     const imageTopic = `esp32cam/${deviceId}/remote/image`;
-                    state.mqttClient.subscribe(imageTopic);
+                    state.mqttClient.subscribe(imageTopic, (err) => {
+                        if (err) {
+                            console.error('Subscribe error:', err);
+                            showToast('Subscribe failed: ' + err, 'error');
+                        } else {
+                            console.log('Subscribed to:', imageTopic);
+                        }
+                    });
                     
                     // Request stream start
                     const requestTopic = `esp32cam/${deviceId}/remote/request`;
@@ -1233,6 +1308,7 @@
                     document.getElementById('remoteStatusDot').className = 'status-dot online';
                     document.getElementById('remoteStatusText').textContent = 'Connected';
                     document.getElementById('remoteTopic').textContent = imageTopic;
+                    document.getElementById('remoteProtocol').textContent = wsProtocol.replace('://', '');
                     document.getElementById('remoteConnectionInfo').style.background = '#e8f5e9';
                     
                     showToast('Remote connected via MQTT', 'success');
@@ -1244,35 +1320,40 @@
                 
                 state.mqttClient.on('message', (topic, message) => {
                     if (topic.includes('/remote/image')) {
-                        const blob = new Blob([message], { type: 'image/jpeg' });
-                        const url = URL.createObjectURL(blob);
-                        
-                        // Update remote video
-                        const remoteImg = document.getElementById('remoteVideoStream');
-                        const remotePlaceholder = document.getElementById('remotePlaceholder');
-                        
-                        remoteImg.src = url;
-                        remoteImg.style.display = 'block';
-                        remotePlaceholder.style.display = 'none';
-                        
-                        // Also update main video if on local page
-                        if (state.currentPage === 'local') {
-                            const mainImg = document.getElementById('videoStream');
-                            const mainPlaceholder = document.getElementById('videoPlaceholder');
-                            mainImg.src = url;
-                            mainImg.style.display = 'block';
-                            mainPlaceholder.style.display = 'none';
+                        try {
+                            const blob = new Blob([message], { type: 'image/jpeg' });
+                            const url = URL.createObjectURL(blob);
+                            
+                            // Update remote video
+                            const remoteImg = document.getElementById('remoteVideoStream');
+                            const remotePlaceholder = document.getElementById('remotePlaceholder');
+                            
+                            remoteImg.src = url;
+                            remoteImg.style.display = 'block';
+                            remotePlaceholder.style.display = 'none';
+                            
+                            // Also update main video if on local page
+                            if (state.currentPage === 'local') {
+                                const mainImg = document.getElementById('videoStream');
+                                const mainPlaceholder = document.getElementById('videoPlaceholder');
+                                mainImg.src = url;
+                                mainImg.style.display = 'block';
+                                mainPlaceholder.style.display = 'none';
+                            }
+                            
+                            state.frameCount++;
+                            
+                            // Update remote stats
+                            document.getElementById('remoteQuality').textContent = 
+                                Math.round((message.length / 1024)) + 'KB';
+                        } catch (e) {
+                            console.error('Error processing image:', e);
                         }
-                        
-                        state.frameCount++;
-                        
-                        // Update remote stats
-                        document.getElementById('remoteQuality').textContent = 
-                            Math.round((message.length / 1024)) + 'KB';
                     }
                 });
                 
                 state.mqttClient.on('error', (error) => {
+                    console.error('MQTT error:', error);
                     showToast('MQTT error: ' + error, 'error');
                 });
                 
@@ -1281,10 +1362,16 @@
                     document.getElementById('remoteStatusDot').className = 'status-dot offline';
                     document.getElementById('remoteStatusText').textContent = 'Disconnected';
                     document.getElementById('remoteConnectionInfo').style.background = '#ffebee';
+                    showToast('MQTT connection closed', 'info');
+                });
+                
+                state.mqttClient.on('offline', () => {
+                    showToast('MQTT client offline', 'warning');
                 });
                 
             } catch (error) {
-                showToast('Remote connection failed: ' + error, 'error');
+                console.error('Connection error:', error);
+                showToast('Remote connection failed: ' + error.message, 'error');
             }
         }
 
@@ -1293,10 +1380,16 @@
                 const deviceId = document.getElementById('remoteDeviceId').value;
                 if (deviceId) {
                     const requestTopic = `esp32cam/${deviceId}/remote/request`;
-                    state.mqttClient.publish(requestTopic, 'stop');
+                    try {
+                        state.mqttClient.publish(requestTopic, 'stop');
+                    } catch (e) {
+                        console.log('Error sending stop:', e);
+                    }
                 }
                 
-                state.mqttClient.end();
+                state.mqttClient.end(true, () => {
+                    console.log('MQTT client ended');
+                });
                 state.mqttClient = null;
             }
             
@@ -1310,6 +1403,7 @@
             // Update UI
             document.getElementById('remoteStatusDot').className = 'status-dot offline';
             document.getElementById('remoteStatusText').textContent = 'Disconnected';
+            document.getElementById('remoteProtocol').textContent = '-';
             
             showToast('Remote disconnected', 'info');
         }
@@ -1525,6 +1619,9 @@
                     loadDeviceInfo();
                 }
             }, 5000);
+            
+            // Update security note
+            updateSecurityNote();
         });
 
         // Save camera IP
