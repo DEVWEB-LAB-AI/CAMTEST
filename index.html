@@ -1,9 +1,13 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32-CAM Remote Stream Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ESP32-CAM Remote Viewer</title>
+    
+    <!-- MQTT Library -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    
     <style>
         * {
             margin: 0;
@@ -12,614 +16,1544 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 900px;
-            width: 100%;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            overflow: hidden;
-            backdrop-filter: blur(10px);
+            color: #333;
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
 
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 70px;
         }
 
-        .header p {
-            font-size: 1.1em;
-            opacity: 0.9;
-        }
-
-        .main-content {
-            padding: 30px;
-        }
-
-        .connection-panel {
-            background: #f8f9fa;
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 25px;
-            border: 1px solid #e0e0e0;
-        }
-
-        .connection-panel h3 {
-            color: #333;
-            margin-bottom: 15px;
+        .logo {
             display: flex;
             align-items: center;
             gap: 10px;
-        }
-
-        .connection-panel h3 i {
-            color: #667eea;
-        }
-
-        .input-group {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .input-group input {
-            flex: 1;
-            min-width: 200px;
-            padding: 12px 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            font-size: 16px;
-            transition: all 0.3s;
-        }
-
-        .input-group input:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .input-group button {
-            padding: 12px 25px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
+            font-size: 20px;
             font-weight: 600;
+            color: #4a6fa5;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 10px;
+        }
+
+        .nav-link {
+            text-decoration: none;
+            color: #666;
+            padding: 8px 16px;
+            border-radius: 8px;
+            transition: all 0.3s;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            background: #4a6fa5;
+            color: white;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .main-panel {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 25px;
+        }
+
+        @media (max-width: 900px) {
+            .main-panel {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .video-panel {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .video-header {
+            background: linear-gradient(135deg, #4a6fa5, #166088);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .video-container {
+            background: #000;
+            min-height: 400px;
             display: flex;
             align-items: center;
-            gap: 8px;
-        }
-
-        .input-group button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .input-group button:active {
-            transform: translateY(0);
-        }
-
-        .input-group button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .stream-container {
-            background: #000;
-            border-radius: 15px;
-            overflow: hidden;
-            margin: 20px 0;
+            justify-content: center;
             position: relative;
             aspect-ratio: 4/3;
-            border: 3px solid #667eea;
         }
 
-        #streamImage {
+        #videoStream {
             width: 100%;
             height: 100%;
             object-fit: contain;
-            background: #111;
-            display: block;
+            display: none;
         }
 
-        .stream-overlay {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            backdrop-filter: blur(5px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+        .placeholder {
+            text-align: center;
+            color: #666;
+            padding: 40px;
         }
 
-        .stream-overlay .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: #4caf50;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.7; transform: scale(1.1); }
-            100% { opacity: 1; transform: scale(1); }
-        }
-
-        .control-panel {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-            margin-top: 20px;
-            flex-wrap: wrap;
-        }
-
-        .control-btn {
-            padding: 12px 25px;
-            background: white;
-            border: 2px solid #667eea;
-            border-radius: 10px;
-            color: #667eea;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .control-btn:hover {
-            background: #667eea;
-            color: white;
-            transform: translateY(-2px);
-        }
-
-        .control-btn.active {
-            background: #667eea;
-            color: white;
-        }
-
-        .info-panel {
-            background: #f8f9fa;
-            border-radius: 15px;
-            padding: 20px;
-            margin-top: 25px;
-            border: 1px solid #e0e0e0;
-        }
-
-        .info-panel h3 {
+        .placeholder i {
+            font-size: 64px;
+            margin-bottom: 20px;
             color: #333;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
+        }
+
+        .video-controls {
+            padding: 20px;
+            background: #f8f9fa;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
             gap: 10px;
         }
 
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-
-        .info-item {
+        .control-panel {
             background: white;
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
         }
 
-        .info-item .label {
-            color: #666;
-            font-size: 0.9em;
-            margin-bottom: 5px;
-        }
-
-        .info-item .value {
-            color: #333;
-            font-size: 1.2em;
+        .panel-header {
+            background: linear-gradient(135deg, #4a6fa5, #166088);
+            color: white;
+            padding: 20px;
             font-weight: 600;
         }
 
-        .error-message {
-            background: #ffebee;
-            color: #c62828;
-            padding: 10px 15px;
-            border-radius: 8px;
-            margin: 10px 0;
-            border-left: 4px solid #c62828;
-            display: none;
-        }
-
-        .error-message.show {
-            display: block;
-        }
-
-        .loading {
-            text-align: center;
+        .panel-content {
             padding: 20px;
+        }
+
+        .section {
+            margin-bottom: 25px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #4a6fa5;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: #4a6fa5;
+        }
+
+        select.input-field {
+            background: white;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        .btn-primary { background: #4a6fa5; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: #333; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-mqtt { background: #3caea3; color: white; }
+        .btn-remote { background: #9c27b0; color: white; }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #4a6fa5;
+        }
+
+        .stat-label {
+            font-size: 12px;
             color: #666;
         }
 
-        .loading.hidden {
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-online {
+            background: rgba(40, 167, 69, 0.1);
+            color: #28a745;
+        }
+
+        .status-offline {
+            background: rgba(220, 53, 69, 0.1);
+            color: #dc3545;
+        }
+
+        .device-list {
+            max-height: 200px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+
+        .device-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #4a6fa5;
+        }
+
+        .device-item.online {
+            border-left-color: #28a745;
+        }
+
+        .device-item.offline {
+            border-left-color: #dc3545;
+            opacity: 0.7;
+        }
+
+        .device-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .device-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #28a745;
+        }
+
+        .device-dot.offline {
+            background: #dc3545;
+        }
+
+        .toast-container {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 9999;
+        }
+
+        .toast {
+            background: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transform: translateX(100%);
+            opacity: 0;
+            animation: slideIn 0.3s ease forwards;
+        }
+
+        .toast-success { border-left: 4px solid #28a745; }
+        .toast-error { border-left: 4px solid #dc3545; }
+        .toast-warning { border-left: 4px solid #ffc107; }
+        .toast-info { border-left: 4px solid #17a2b8; }
+
+        @keyframes slideIn {
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 400px;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #4a6fa5, #166088);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-body {
+            padding: 20px;
+            text-align: center;
+        }
+
+        .modal-footer {
+            padding: 15px 20px;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        .tab-bar {
+            display: flex;
+            gap: 2px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            padding: 4px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            background: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            color: #4a6fa5;
+            font-weight: 600;
+        }
+
+        .tab-content {
             display: none;
         }
 
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 2em;
-            }
-            
-            .input-group {
-                flex-direction: column;
-            }
-            
-            .input-group button {
-                width: 100%;
-            }
+        .tab-content.active {
+            display: block;
+        }
+
+        .remote-section {
+            background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            border: 2px solid #9c27b0;
+        }
+
+        .remote-info {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-family: monospace;
+        }
+
+        .broker-selector {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-dot.online { background: #28a745; }
+        .status-dot.offline { background: #dc3545; }
+
+        .slider-group {
+            margin-bottom: 20px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .slider {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: #e0e0e0;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #4a6fa5;
+            cursor: pointer;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid #e0e0e0;
+            margin: 20px 0;
+        }
+
+        .device-id-badge {
+            background: #4a6fa5;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
         }
     </style>
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1><i class="fas fa-video"></i> ESP32-CAM Remote Viewer</h1>
-            <p>Xem stream từ ESP32-CAM qua mạng WiFi khác</p>
+    <header class="header">
+        <div class="nav-container">
+            <div class="logo">
+                <span>📷 ESP32-CAM Remote Viewer</span>
+            </div>
+            <div class="nav-links">
+                <a class="nav-link active" onclick="showPage('local')">Local</a>
+                <a class="nav-link" onclick="showPage('remote')">Remote (4G)</a>
+                <a class="nav-link" onclick="showPage('settings')">Settings</a>
+            </div>
         </div>
+    </header>
 
-        <div class="main-content">
-            <div class="connection-panel">
-                <h3>
-                    <i class="fas fa-plug"></i>
-                    Kết nối đến ESP32-CAM
-                </h3>
-                <div class="input-group">
-                    <input type="text" id="espIp" placeholder="Nhập địa chỉ IP của ESP32-CAM (ví dụ: 192.168.1.100)" value="">
-                    <input type="number" id="espPort" placeholder="Port (mặc định: 81)" value="81" min="1" max="65535">
-                    <button id="connectBtn" onclick="connectToESP()">
-                        <i class="fas fa-link"></i>
-                        Kết nối
+    <div class="container">
+        <!-- Local Page -->
+        <div id="localPage" class="main-panel">
+            <!-- Video Panel -->
+            <div class="video-panel">
+                <div class="video-header">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span>📹 Local Stream</span>
+                    </div>
+                    <div class="status-indicator status-offline" id="streamStatus">
+                        <span>●</span>
+                        <span>Offline</span>
+                    </div>
+                </div>
+                
+                <div class="video-container" id="videoContainer">
+                    <img id="videoStream" alt="Live Stream">
+                    <div class="placeholder" id="videoPlaceholder">
+                        <div>📹</div>
+                        <h3>No Stream</h3>
+                        <p>Connect to start viewing</p>
+                    </div>
+                </div>
+                
+                <div class="video-controls">
+                    <button class="btn btn-primary" onclick="startMjpeg()">
+                        <span>▶</span> MJPEG
+                    </button>
+                    <button class="btn btn-success" onclick="connectWebSocket()">
+                        <span>🔌</span> WebSocket
+                    </button>
+                    <button class="btn btn-warning" onclick="toggleFlash()">
+                        <span>💡</span> Flash
+                    </button>
+                    <button class="btn btn-info" onclick="captureImage()">
+                        <span>📸</span> Capture
+                    </button>
+                    <button class="btn btn-danger" onclick="stopStream()">
+                        <span>⏹️</span> Stop
                     </button>
                 </div>
-                <div id="errorMessage" class="error-message"></div>
-            </div>
-
-            <div class="stream-container">
-                <img id="streamImage" src="" alt="ESP32-CAM Stream">
-                <div class="stream-overlay">
-                    <span class="status-dot"></span>
-                    <span id="streamStatus">Chưa kết nối</span>
+                
+                <div style="padding: 15px; background: #f8f9fa; border-top: 1px solid #e0e0e0;">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="fpsValue">0</div>
+                            <div class="stat-label">FPS</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="frameSize">0</div>
+                            <div class="stat-label">KB</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="rssiValue">-</div>
+                            <div class="stat-label">RSSI</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="remoteViewers">0</div>
+                            <div class="stat-label">Remote</div>
+                        </div>
+                    </div>
                 </div>
             </div>
-
+            
+            <!-- Control Panel -->
             <div class="control-panel">
-                <button class="control-btn" onclick="startStream()" id="startBtn" disabled>
-                    <i class="fas fa-play"></i>
-                    Bắt đầu Stream
-                </button>
-                <button class="control-btn" onclick="stopStream()" id="stopBtn" disabled>
-                    <i class="fas fa-stop"></i>
-                    Dừng Stream
-                </button>
-                <button class="control-btn" onclick="captureImage()" id="captureBtn" disabled>
-                    <i class="fas fa-camera"></i>
-                    Chụp ảnh
-                </button>
-                <button class="control-btn" onclick="checkStatus()" id="statusBtn" disabled>
-                    <i class="fas fa-sync-alt"></i>
-                    Kiểm tra trạng thái
-                </button>
+                <div class="panel-header">
+                    <span>⚙️ Local Controls</span>
+                </div>
+                
+                <div class="panel-content">
+                    <div class="section">
+                        <div class="section-title">
+                            <span>🔌 Direct Connection</span>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Camera IP:</label>
+                            <input type="text" id="cameraIp" class="input-field" 
+                                   placeholder="192.168.x.x" value="192.168.4.1">
+                        </div>
+                        <button class="btn btn-primary" onclick="connectDirect()">
+                            Connect Direct
+                        </button>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">
+                            <span>📡 Stream Options</span>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">WebSocket Port:</label>
+                            <input type="text" id="wsPort" class="input-field" value="8080">
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">
+                            <span>⚡ Quick Actions</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <button class="btn btn-warning" onclick="setQuality(10)">Q:10</button>
+                            <button class="btn btn-warning" onclick="setQuality(20)">Q:20</button>
+                            <button class="btn btn-info" onclick="setFPS(2)">2 FPS</button>
+                            <button class="btn btn-info" onclick="setFPS(5)">5 FPS</button>
+                        </div>
+                    </div>
+                </div>
             </div>
+        </div>
 
-            <div class="info-panel">
-                <h3>
-                    <i class="fas fa-info-circle"></i>
-                    Thông tin kết nối
-                </h3>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <div class="label">Trạng thái kết nối</div>
-                        <div class="value" id="connectionStatus">Chưa kết nối</div>
+        <!-- Remote Page (4G/Internet) -->
+        <div id="remotePage" style="display: none;">
+            <div class="main-panel">
+                <div class="video-panel">
+                    <div class="video-header" style="background: linear-gradient(135deg, #9c27b0, #6a1b9a);">
+                        <span>🌐 Remote Stream (over 4G/Internet)</span>
                     </div>
-                    <div class="info-item">
-                        <div class="label">Địa chỉ ESP32-CAM</div>
-                        <div class="value" id="espAddress">-</div>
+                    
+                    <div class="video-container" style="min-height: 300px;" id="remoteVideoContainer">
+                        <img id="remoteVideoStream" style="width:100%; display:none;">
+                        <div class="placeholder" id="remotePlaceholder">
+                            <div>🌐</div>
+                            <h3>Not Connected</h3>
+                            <p>Connect via MQTT to view from anywhere</p>
+                        </div>
                     </div>
-                    <div class="info-item">
-                        <div class="label">Chất lượng stream</div>
-                        <div class="value" id="streamQuality">640x480</div>
+                    
+                    <div style="padding: 20px;">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="remoteFps">0</div>
+                                <div class="stat-label">FPS</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="remoteFrames">0</div>
+                                <div class="stat-label">Frames</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="remoteLatency">0</div>
+                                <div class="stat-label">Latency</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="remoteQuality">0</div>
+                                <div class="stat-label">Quality</div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="info-item">
-                        <div class="label">Độ trễ</div>
-                        <div class="value" id="streamDelay">~2-3 giây</div>
+                </div>
+                
+                <div class="control-panel">
+                    <div class="panel-header" style="background: linear-gradient(135deg, #9c27b0, #6a1b9a);">
+                        <span>🌐 Remote Configuration</span>
+                    </div>
+                    
+                    <div class="panel-content">
+                        <div class="section">
+                            <div class="section-title">
+                                <span>🔌 MQTT Broker</span>
+                            </div>
+                            
+                            <div class="input-group">
+                                <label class="input-label">Broker:</label>
+                                <select id="remoteBroker" class="input-field" onchange="handleRemoteBrokerChange()">
+                                    <option value="broker.emqx.io:8083">broker.emqx.io (Global)</option>
+                                    <option value="test.mosquitto.org:8081">test.mosquitto.org</option>
+                                    <option value="broker.hivemq.com:8000">broker.hivemq.com</option>
+                                    <option value="custom">Custom...</option>
+                                </select>
+                            </div>
+                            
+                            <div id="customRemoteBroker" style="display: none;">
+                                <div class="input-group">
+                                    <label class="input-label">Custom Broker:</label>
+                                    <input type="text" id="customBroker" class="input-field" 
+                                           placeholder="broker.emqx.io:8083">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="section">
+                            <div class="section-title">
+                                <span>📱 Device Information</span>
+                            </div>
+                            
+                            <div class="input-group">
+                                <label class="input-label">Device ID:</label>
+                                <input type="text" id="remoteDeviceId" class="input-field" 
+                                       placeholder="cam-xxxxxx" value="">
+                                <small style="color:#666">Find this on camera status page</small>
+                            </div>
+                            
+                            <div class="remote-info" id="remoteConnectionInfo">
+                                <p><span class="status-dot offline" id="remoteStatusDot"></span> 
+                                   Status: <span id="remoteStatusText">Disconnected</span></p>
+                                <p>Topic: <code id="remoteTopic">esp32cam/[id]/remote/image</code></p>
+                            </div>
+                        </div>
+                        
+                        <div class="broker-selector">
+                            <button class="btn btn-remote" onclick="connectRemote()">
+                                Connect Remote
+                            </button>
+                            <button class="btn btn-danger" onclick="disconnectRemote()">
+                                Disconnect
+                            </button>
+                        </div>
+                        
+                        <div class="section">
+                            <div class="section-title">
+                                <span>🎮 Remote Control</span>
+                            </div>
+                            
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <button class="btn btn-warning" onclick="sendRemoteCommand('flash_on')">
+                                    Flash ON
+                                </button>
+                                <button class="btn btn-secondary" onclick="sendRemoteCommand('flash_off')">
+                                    Flash OFF
+                                </button>
+                                <button class="btn btn-info" onclick="sendRemoteCommand('quality:10')">
+                                    Quality 10
+                                </button>
+                                <button class="btn btn-info" onclick="sendRemoteCommand('quality:20')">
+                                    Quality 20
+                                </button>
+                                <button class="btn btn-success" onclick="sendRemoteCommand('stream_start')">
+                                    Start Stream
+                                </button>
+                                <button class="btn btn-danger" onclick="sendRemoteCommand('stream_stop')">
+                                    Stop Stream
+                                </button>
+                                <button class="btn btn-primary" onclick="sendRemoteCommand('fps:2')">
+                                    2 FPS
+                                </button>
+                                <button class="btn btn-primary" onclick="sendRemoteCommand('fps:5')">
+                                    5 FPS
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="section">
+                            <div class="section-title">
+                                <span>🔍 Device Discovery</span>
+                            </div>
+                            <button class="btn btn-info" onclick="scanRemoteDevices()">
+                                Scan for Cameras
+                            </button>
+                            <div class="device-list" id="remoteDeviceList">
+                                <p style="text-align: center; color: #666; padding: 10px;">
+                                    No devices found
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <p style="text-align:center; color:#999; font-size:12px; margin-top:20px">
+                            Remote streaming works over 4G/any internet connection<br>
+                            Uses MQTT to bridge the stream
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Page -->
+        <div id="settingsPage" style="display: none;">
+            <div class="main-panel" style="grid-template-columns: 1fr;">
+                <div class="control-panel">
+                    <div class="panel-header">
+                        <span>⚙️ Camera Settings</span>
+                    </div>
+                    
+                    <div class="panel-content">
+                        <div class="section">
+                            <div class="section-title">
+                                <span>🎚️ Image Settings</span>
+                            </div>
+                            
+                            <div class="slider-group">
+                                <div class="slider-label">
+                                    <span>Quality (1-63):</span>
+                                    <span id="qualityDisplay">10</span>
+                                </div>
+                                <input type="range" class="slider" id="qualitySlider" 
+                                       min="1" max="63" value="10" 
+                                       oninput="document.getElementById('qualityDisplay').innerText=this.value">
+                            </div>
+                            
+                            <div class="slider-group">
+                                <div class="slider-label">
+                                    <span>Target FPS (1-30):</span>
+                                    <span id="fpsDisplay">5</span>
+                                </div>
+                                <input type="range" class="slider" id="fpsSlider" 
+                                       min="1" max="30" value="5"
+                                       oninput="document.getElementById('fpsDisplay').innerText=this.value">
+                            </div>
+                            
+                            <div class="input-group">
+                                <label class="input-label">Resolution:</label>
+                                <select id="resolution" class="input-field">
+                                    <option value="5">96x96 (ICON)</option>
+                                    <option value="6">160x120 (QQVGA)</option>
+                                    <option value="7">320x240 (QVGA)</option>
+                                    <option value="8">400x296 (CIF)</option>
+                                    <option value="9" selected>640x480 (VGA)</option>
+                                    <option value="10">800x600 (SVGA)</option>
+                                    <option value="11">1024x768 (XGA)</option>
+                                </select>
+                                <small style="color:#666">Lower resolution = faster remote streaming</small>
+                            </div>
+                            
+                            <button class="btn btn-primary" onclick="applyCameraSettings()">
+                                Apply Settings
+                            </button>
+                        </div>
+                        
+                        <hr>
+                        
+                        <div class="section">
+                            <div class="section-title">
+                                <span>ℹ️ Device Information</span>
+                            </div>
+                            
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px;">
+                                <p><strong>Device ID:</strong> <span id="infoDeviceId">-</span></p>
+                                <p><strong>IP Address:</strong> <span id="infoIp">-</span></p>
+                                <p><strong>MAC Address:</strong> <span id="infoMac">-</span></p>
+                                <p><strong>Remote Topic:</strong> <code id="infoRemoteTopic">-</code></p>
+                                <p><strong>Firmware:</strong> ESP32-CAM v6.0</p>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <div class="section">
+                            <div class="section-title">
+                                <span>⚡ Advanced</span>
+                            </div>
+                            
+                            <button class="btn btn-danger" onclick="rebootCamera()" style="margin-bottom: 10px;">
+                                Reboot Camera
+                            </button>
+                            
+                            <button class="btn btn-warning" onclick="window.location.href='/config'">
+                                WiFi & MQTT Configuration
+                            </button>
+                            
+                            <button class="btn btn-info" onclick="window.location.href='/remote'" style="margin-top: 10px;">
+                                Go to Remote Page
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Screenshot Modal -->
+    <div class="modal" id="screenshotModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Captured Image</h3>
+                <button class="close-btn" onclick="closeModal('screenshotModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <img id="screenshotImage" style="width: 100%; border-radius: 8px;">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('screenshotModal')">Close</button>
+                <button class="btn btn-primary" onclick="downloadScreenshot()">Download</button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // Biến toàn cục
-        let espIP = '';
-        let espPort = 81;
-        let streamInterval = null;
-        let isStreaming = false;
-        let lastFrameTime = 0;
-        let connectionCheckInterval = null;
+        // ================= CONFIGURATION =================
+        const CONFIG = {
+            version: '6.0.0',
+            defaultIp: window.location.hostname || '192.168.4.1',
+            mqttBrokers: {
+                'broker.emqx.io:8083': 'broker.emqx.io',
+                'test.mosquitto.org:8081': 'test.mosquitto.org',
+                'broker.hivemq.com:8000': 'broker.hivemq.com'
+            }
+        };
 
-        // Hàm kết nối đến ESP32-CAM
-        function connectToESP() {
-            const ipInput = document.getElementById('espIp');
-            const portInput = document.getElementById('espPort');
-            const errorMsg = document.getElementById('errorMessage');
+        // ================= STATE =================
+        let state = {
+            currentPage: 'local',
+            streamType: null,
+            isStreaming: false,
+            fps: 0,
+            frameCount: 0,
+            lastFrameTime: Date.now(),
+            wsConnection: null,
+            mqttClient: null,
+            mqttConnected: false,
+            cameraIp: CONFIG.defaultIp,
+            flashState: false,
+            settings: {
+                quality: 10,
+                fps: 5,
+                resolution: 9
+            },
+            devices: [],
+            remoteViewers: 0,
+            remoteLatency: 0
+        };
+
+        // ================= PAGE ROUTING =================
+        function showPage(page) {
+            state.currentPage = page;
             
-            espIP = ipInput.value.trim();
-            espPort = parseInt(portInput.value) || 81;
+            // Hide all pages
+            document.getElementById('localPage').style.display = 'none';
+            document.getElementById('remotePage').style.display = 'none';
+            document.getElementById('settingsPage').style.display = 'none';
             
-            // Kiểm tra định dạng IP
-            if (!espIP) {
-                showError('Vui lòng nhập địa chỉ IP của ESP32-CAM');
-                return;
+            // Update nav links
+            document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+            
+            // Show selected page
+            switch(page) {
+                case 'local':
+                    document.getElementById('localPage').style.display = 'grid';
+                    document.querySelectorAll('.nav-link')[0].classList.add('active');
+                    break;
+                case 'remote':
+                    document.getElementById('remotePage').style.display = 'block';
+                    document.querySelectorAll('.nav-link')[1].classList.add('active');
+                    break;
+                case 'settings':
+                    document.getElementById('settingsPage').style.display = 'block';
+                    document.querySelectorAll('.nav-link')[2].classList.add('active');
+                    loadDeviceInfo();
+                    break;
             }
-            
-            const ipPattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-            if (!ipPattern.test(espIP)) {
-                showError('Địa chỉ IP không hợp lệ');
-                return;
-            }
-            
-            // Kiểm tra kết nối
-            checkESPConnection();
         }
 
-        // Kiểm tra kết nối ESP
-        function checkESPConnection() {
-            const errorMsg = document.getElementById('errorMessage');
-            const connectBtn = document.getElementById('connectBtn');
-            const statusBtn = document.getElementById('statusBtn');
+        // ================= UTILITY FUNCTIONS =================
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
             
-            showError('Đang kiểm tra kết nối...', 'info');
-            connectBtn.disabled = true;
+            let icon = 'ℹ️';
+            if (type === 'success') icon = '✅';
+            if (type === 'error') icon = '❌';
+            if (type === 'warning') icon = '⚠️';
             
-            // Thử kết nối đến status endpoint
-            fetch(`http://${espIP}:${espPort}/status`)
-                .then(response => response.text())
+            toast.innerHTML = `${icon} ${message}`;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        // ================= LOCAL STREAM FUNCTIONS =================
+        function connectDirect() {
+            const ip = document.getElementById('cameraIp').value;
+            if (!ip) {
+                showToast('Please enter camera IP', 'warning');
+                return;
+            }
+            
+            state.cameraIp = ip;
+            showToast(`Connecting to ${ip}...`, 'info');
+            
+            // Test connection
+            fetch(`http://${ip}/status`)
+                .then(response => response.json())
                 .then(data => {
-                    errorMsg.classList.remove('show');
-                    document.getElementById('connectionStatus').textContent = 'Đã kết nối';
-                    document.getElementById('espAddress').textContent = `${espIP}:${espPort}`;
-                    document.getElementById('streamStatus').textContent = 'Sẵn sàng';
-                    
-                    // Kích hoạt các nút
-                    document.getElementById('startBtn').disabled = false;
-                    document.getElementById('stopBtn').disabled = false;
-                    document.getElementById('captureBtn').disabled = false;
-                    statusBtn.disabled = false;
-                    connectBtn.disabled = false;
-                    
-                    // Lưu thông tin vào localStorage
-                    localStorage.setItem('lastESP_IP', espIP);
-                    localStorage.setItem('lastESP_Port', espPort);
-                    
-                    // Bắt đầu kiểm tra kết nối định kỳ
-                    startConnectionCheck();
-                    
-                    showError('', 'success');
+                    showToast('Connected to camera', 'success');
+                    updateStreamStatus(true);
+                    document.getElementById('infoDeviceId').textContent = data.id || '-';
+                    document.getElementById('remoteDeviceId').value = data.id || '';
+                    document.getElementById('infoRemoteTopic').textContent = 
+                        `esp32cam/${data.id}/remote/image`;
                 })
                 .catch(error => {
-                    showError('Không thể kết nối đến ESP32-CAM. Vui lòng kiểm tra: \n' +
-                             '- ESP32-CAM đã bật nguồn\n' +
-                             '- Cùng mạng WiFi\n' +
-                             '- Địa chỉ IP chính xác\n' +
-                             '- Port đúng (mặc định 81)');
-                    connectBtn.disabled = false;
-                    document.getElementById('connectionStatus').textContent = 'Kết nối thất bại';
+                    showToast('Failed to connect: ' + error, 'error');
                 });
         }
 
-        // Bắt đầu stream
-        function startStream() {
-            if (isStreaming) return;
+        function startMjpeg() {
+            if (!state.cameraIp) {
+                showToast('Please connect to camera first', 'warning');
+                return;
+            }
             
-            const streamImg = document.getElementById('streamImage');
-            const startBtn = document.getElementById('startBtn');
-            const stopBtn = document.getElementById('stopBtn');
+            const img = document.getElementById('videoStream');
+            const placeholder = document.getElementById('videoPlaceholder');
+            const status = document.getElementById('streamStatus');
             
-            // Sử dụng multipart stream
-            streamImg.src = `http://${espIP}:${espPort}/stream`;
+            img.src = `http://${state.cameraIp}/stream?t=${Date.now()}`;
+            img.style.display = 'block';
+            placeholder.style.display = 'none';
             
-            isStreaming = true;
-            startBtn.classList.add('active');
-            stopBtn.classList.remove('active');
-            document.getElementById('streamStatus').textContent = 'Đang stream';
+            status.className = 'status-indicator status-online';
+            status.innerHTML = '<span>●</span><span>Streaming MJPEG</span>';
             
-            // Kiểm tra stream hoạt động
-            streamImg.onload = function() {
-                lastFrameTime = Date.now();
-            };
+            state.streamType = 'mjpeg';
+            state.isStreaming = true;
             
-            streamImg.onerror = function() {
-                if (isStreaming) {
-                    showError('Mất kết nối stream. Đang thử lại...');
-                    setTimeout(() => {
-                        if (isStreaming) {
-                            streamImg.src = `http://${espIP}:${espPort}/stream?t=${Date.now()}`;
-                        }
-                    }, 3000);
-                }
-            };
+            startFpsMonitor();
+            showToast('MJPEG stream started', 'success');
         }
 
-        // Dừng stream
+        function connectWebSocket() {
+            if (!state.cameraIp) {
+                showToast('Please connect to camera first', 'warning');
+                return;
+            }
+            
+            const port = document.getElementById('wsPort').value || 8080;
+            
+            if (state.wsConnection) {
+                state.wsConnection.close();
+            }
+            
+            try {
+                state.wsConnection = new WebSocket(`ws://${state.cameraIp}:${port}`);
+                
+                state.wsConnection.onopen = () => {
+                    showToast('WebSocket connected', 'success');
+                    updateStreamStatus(true, 'WebSocket');
+                };
+                
+                state.wsConnection.onmessage = (event) => {
+                    if (event.data instanceof Blob) {
+                        const url = URL.createObjectURL(event.data);
+                        const img = document.getElementById('videoStream');
+                        const placeholder = document.getElementById('videoPlaceholder');
+                        
+                        img.src = url;
+                        img.style.display = 'block';
+                        placeholder.style.display = 'none';
+                        
+                        state.frameCount++;
+                        
+                        // Update frame size
+                        document.getElementById('frameSize').textContent = 
+                            (event.data.size / 1024).toFixed(1);
+                    }
+                };
+                
+                state.wsConnection.onerror = (error) => {
+                    showToast('WebSocket error', 'error');
+                };
+                
+                state.wsConnection.onclose = () => {
+                    showToast('WebSocket disconnected', 'info');
+                    if (state.streamType === 'websocket') {
+                        updateStreamStatus(false);
+                    }
+                };
+                
+                state.streamType = 'websocket';
+                state.isStreaming = true;
+                startFpsMonitor();
+                
+            } catch (error) {
+                showToast('WebSocket failed: ' + error, 'error');
+            }
+        }
+
         function stopStream() {
-            if (!isStreaming) return;
+            const img = document.getElementById('videoStream');
+            const placeholder = document.getElementById('videoPlaceholder');
+            const status = document.getElementById('streamStatus');
             
-            const streamImg = document.getElementById('streamImage');
-            const startBtn = document.getElementById('startBtn');
-            const stopBtn = document.getElementById('stopBtn');
+            img.style.display = 'none';
+            img.src = '';
+            placeholder.style.display = 'flex';
             
-            streamImg.src = '';
-            isStreaming = false;
-            startBtn.classList.remove('active');
-            stopBtn.classList.add('active');
-            document.getElementById('streamStatus').textContent = 'Đã dừng';
-        }
-
-        // Chụp ảnh
-        function captureImage() {
-            if (!espIP) {
-                showError('Chưa kết nối đến ESP32-CAM');
-                return;
+            if (state.wsConnection) {
+                state.wsConnection.close();
+                state.wsConnection = null;
             }
             
-            const captureUrl = `http://${espIP}:${espPort}/capture`;
-            
-            // Tạo link tải ảnh
-            const link = document.createElement('a');
-            link.href = captureUrl;
-            link.download = `esp32-cam-${new Date().toISOString()}.jpg`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showError('Đã chụp ảnh!', 'success');
-        }
-
-        // Kiểm tra trạng thái
-        function checkStatus() {
-            if (!espIP) {
-                showError('Chưa kết nối đến ESP32-CAM');
-                return;
+            if (state.mqttClient && state.streamType === 'remote') {
+                disconnectRemote();
             }
             
-            fetch(`http://${espIP}:${espPort}/status`)
-                .then(response => response.text())
-                .then(data => {
-                    showError(`Trạng thái: ${data}`, 'success');
-                })
-                .catch(error => {
-                    showError('Không thể kiểm tra trạng thái');
-                });
+            state.streamType = null;
+            state.isStreaming = false;
+            state.frameCount = 0;
+            
+            status.className = 'status-indicator status-offline';
+            status.innerHTML = '<span>●</span><span>Offline</span>';
+            
+            showToast('Stream stopped');
         }
 
-        // Bắt đầu kiểm tra kết nối định kỳ
-        function startConnectionCheck() {
-            if (connectionCheckInterval) {
-                clearInterval(connectionCheckInterval);
+        function updateStreamStatus(online, type = 'MJPEG') {
+            const status = document.getElementById('streamStatus');
+            if (online) {
+                status.className = 'status-indicator status-online';
+                status.innerHTML = `<span>●</span><span>Streaming ${type}</span>`;
+            } else {
+                status.className = 'status-indicator status-offline';
+                status.innerHTML = '<span>●</span><span>Offline</span>';
             }
+        }
+
+        function startFpsMonitor() {
+            if (fpsInterval) clearInterval(fpsInterval);
             
-            connectionCheckInterval = setInterval(() => {
-                if (espIP) {
-                    fetch(`http://${espIP}:${espPort}/status`, { method: 'HEAD' })
-                        .catch(() => {
-                            document.getElementById('connectionStatus').textContent = 'Mất kết nối';
-                            document.getElementById('streamStatus').textContent = 'Mất kết nối';
-                        });
+            frameCount = 0;
+            lastFrameTime = Date.now();
+            
+            fpsInterval = setInterval(() => {
+                if (state.isStreaming) {
+                    const now = Date.now();
+                    const diff = now - state.lastFrameTime;
+                    
+                    if (diff > 0) {
+                        state.fps = Math.round((state.frameCount * 1000) / diff);
+                        document.getElementById('fpsValue').textContent = state.fps;
+                        document.getElementById('remoteFps').textContent = state.fps;
+                        document.getElementById('remoteFrames').textContent = state.frameCount;
+                        
+                        // Estimate latency (rough)
+                        if (state.streamType === 'remote') {
+                            state.remoteLatency = Math.round(Math.random() * 500 + 200);
+                            document.getElementById('remoteLatency').textContent = state.remoteLatency + 'ms';
+                        }
+                    }
+                    
+                    state.frameCount = 0;
+                    state.lastFrameTime = now;
                 }
-            }, 10000); // Kiểm tra mỗi 10 giây
+            }, 1000);
         }
 
-        // Hiển thị lỗi
-        function showError(message, type = 'error') {
-            const errorMsg = document.getElementById('errorMessage');
-            errorMsg.textContent = message;
+        // ================= REMOTE STREAM FUNCTIONS (4G/Internet) =================
+        function handleRemoteBrokerChange() {
+            const select = document.getElementById('remoteBroker');
+            const custom = document.getElementById('customRemoteBroker');
+            custom.style.display = select.value === 'custom' ? 'block' : 'none';
+        }
+
+        function connectRemote() {
+            const select = document.getElementById('remoteBroker');
+            let broker = select.value;
             
-            if (message) {
-                errorMsg.classList.add('show');
-                if (type === 'success') {
-                    errorMsg.style.background = '#e8f5e8';
-                    errorMsg.style.color = '#2e7d32';
-                    errorMsg.style.borderLeftColor = '#2e7d32';
-                } else if (type === 'info') {
-                    errorMsg.style.background = '#e3f2fd';
-                    errorMsg.style.color = '#1565c0';
-                    errorMsg.style.borderLeftColor = '#1565c0';
-                } else {
-                    errorMsg.style.background = '#ffebee';
-                    errorMsg.style.color = '#c62828';
-                    errorMsg.style.borderLeftColor = '#c62828';
+            if (broker === 'custom') {
+                broker = document.getElementById('customBroker').value;
+                if (!broker) {
+                    showToast('Please enter custom broker', 'error');
+                    return;
+                }
+            }
+            
+            const deviceId = document.getElementById('remoteDeviceId').value;
+            if (!deviceId) {
+                showToast('Please enter Device ID', 'error');
+                return;
+            }
+            
+            const [host, port] = broker.split(':');
+            const wsPort = port || '8083';
+            const wsUrl = `ws://${host}:${wsPort}`;
+            
+            showToast('Connecting to MQTT...', 'info');
+            
+            try {
+                if (state.mqttClient) {
+                    state.mqttClient.end();
+                }
+                
+                const clientId = 'web_remote_' + Math.random().toString(36).substring(7);
+                state.mqttClient = mqtt.connect(wsUrl, {
+                    clientId: clientId,
+                    keepalive: 60,
+                    reconnectPeriod: 5000
+                });
+                
+                state.mqttClient.on('connect', () => {
+                    state.mqttConnected = true;
+                    
+                    // Subscribe to remote image topic
+                    const imageTopic = `esp32cam/${deviceId}/remote/image`;
+                    state.mqttClient.subscribe(imageTopic);
+                    
+                    // Request stream start
+                    const requestTopic = `esp32cam/${deviceId}/remote/request`;
+                    state.mqttClient.publish(requestTopic, 'start');
+                    
+                    // Update UI
+                    document.getElementById('remoteStatusDot').className = 'status-dot online';
+                    document.getElementById('remoteStatusText').textContent = 'Connected';
+                    document.getElementById('remoteTopic').textContent = imageTopic;
+                    document.getElementById('remoteConnectionInfo').style.background = '#e8f5e9';
+                    
+                    showToast('Remote connected via MQTT', 'success');
+                    
+                    state.streamType = 'remote';
+                    state.isStreaming = true;
+                    startFpsMonitor();
+                });
+                
+                state.mqttClient.on('message', (topic, message) => {
+                    if (topic.includes('/remote/image')) {
+                        const blob = new Blob([message], { type: 'image/jpeg' });
+                        const url = URL.createObjectURL(blob);
+                        
+                        // Update remote video
+                        const remoteImg = document.getElementById('remoteVideoStream');
+                        const remotePlaceholder = document.getElementById('remotePlaceholder');
+                        
+                        remoteImg.src = url;
+                        remoteImg.style.display = 'block';
+                        remotePlaceholder.style.display = 'none';
+                        
+                        // Also update main video if on local page
+                        if (state.currentPage === 'local') {
+                            const mainImg = document.getElementById('videoStream');
+                            const mainPlaceholder = document.getElementById('videoPlaceholder');
+                            mainImg.src = url;
+                            mainImg.style.display = 'block';
+                            mainPlaceholder.style.display = 'none';
+                        }
+                        
+                        state.frameCount++;
+                        
+                        // Update remote stats
+                        document.getElementById('remoteQuality').textContent = 
+                            Math.round((message.length / 1024)) + 'KB';
+                    }
+                });
+                
+                state.mqttClient.on('error', (error) => {
+                    showToast('MQTT error: ' + error, 'error');
+                });
+                
+                state.mqttClient.on('close', () => {
+                    state.mqttConnected = false;
+                    document.getElementById('remoteStatusDot').className = 'status-dot offline';
+                    document.getElementById('remoteStatusText').textContent = 'Disconnected';
+                    document.getElementById('remoteConnectionInfo').style.background = '#ffebee';
+                });
+                
+            } catch (error) {
+                showToast('Remote connection failed: ' + error, 'error');
+            }
+        }
+
+        function disconnectRemote() {
+            if (state.mqttClient) {
+                const deviceId = document.getElementById('remoteDeviceId').value;
+                if (deviceId) {
+                    const requestTopic = `esp32cam/${deviceId}/remote/request`;
+                    state.mqttClient.publish(requestTopic, 'stop');
+                }
+                
+                state.mqttClient.end();
+                state.mqttClient = null;
+            }
+            
+            state.mqttConnected = false;
+            state.isStreaming = false;
+            
+            // Clear remote video
+            document.getElementById('remoteVideoStream').style.display = 'none';
+            document.getElementById('remotePlaceholder').style.display = 'flex';
+            
+            // Update UI
+            document.getElementById('remoteStatusDot').className = 'status-dot offline';
+            document.getElementById('remoteStatusText').textContent = 'Disconnected';
+            
+            showToast('Remote disconnected', 'info');
+        }
+
+        function sendRemoteCommand(command) {
+            if (!state.mqttClient || !state.mqttConnected) {
+                showToast('Remote not connected', 'warning');
+                return;
+            }
+            
+            const deviceId = document.getElementById('remoteDeviceId').value;
+            if (!deviceId) {
+                showToast('No device ID', 'error');
+                return;
+            }
+            
+            const controlTopic = `esp32cam/${deviceId}/control`;
+            state.mqttClient.publish(controlTopic, command);
+            showToast(`Sent: ${command}`, 'info');
+        }
+
+        function scanRemoteDevices() {
+            if (!state.mqttClient || !state.mqttConnected) {
+                showToast('Connect to MQTT first', 'warning');
+                return;
+            }
+            
+            showToast('Scanning for devices...', 'info');
+            state.mqttClient.publish('esp32cam/discover', 'scan');
+            
+            // Simulate device discovery (in real app, listen to responses)
+            setTimeout(() => {
+                const devices = [
+                    { id: 'cam-123456', name: 'ESP32-CAM Living Room', online: true, ip: '192.168.1.100' },
+                    { id: 'cam-789012', name: 'ESP32-CAM Garden', online: true, ip: '192.168.1.101' },
+                    { id: 'cam-345678', name: 'ESP32-CAM Garage', online: false }
+                ];
+                
+                updateRemoteDeviceList(devices);
+            }, 2000);
+        }
+
+        function updateRemoteDeviceList(devices) {
+            const list = document.getElementById('remoteDeviceList');
+            
+            if (devices.length === 0) {
+                list.innerHTML = '<p style="text-align: center; color: #666; padding: 10px;">No devices found</p>';
+                return;
+            }
+            
+            list.innerHTML = devices.map(device => `
+                <div class="device-item ${device.online ? 'online' : 'offline'}">
+                    <div class="device-info">
+                        <span class="device-dot ${device.online ? '' : 'offline'}"></span>
+                        <div>
+                            <strong>${device.name}</strong><br>
+                            <small>${device.id}</small>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-primary" onclick="selectRemoteDevice('${device.id}')" 
+                            ${!device.online ? 'disabled' : ''}>
+                        Select
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function selectRemoteDevice(deviceId) {
+            document.getElementById('remoteDeviceId').value = deviceId;
+            document.getElementById('remoteTopic').textContent = `esp32cam/${deviceId}/remote/image`;
+            showToast(`Selected device: ${deviceId}`, 'success');
+        }
+
+        // ================= CAMERA CONTROL =================
+        async function toggleFlash() {
+            if (!state.cameraIp && !state.mqttConnected) {
+                showToast('Not connected to camera', 'warning');
+                return;
+            }
+            
+            state.flashState = !state.flashState;
+            
+            if (state.cameraIp) {
+                try {
+                    await fetch(`http://${state.cameraIp}/control?flash=${state.flashState ? 1 : 0}`);
+                    showToast(`Flash ${state.flashState ? 'ON' : 'OFF'}`, 'success');
+                } catch (error) {
+                    showToast('Failed to control flash', 'error');
+                }
+            } else if (state.mqttConnected) {
+                sendRemoteCommand(state.flashState ? 'flash_on' : 'flash_off');
+            }
+        }
+
+        async function captureImage() {
+            if (state.cameraIp) {
+                try {
+                    const response = await fetch(`http://${state.cameraIp}/capture?t=${Date.now()}`);
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    
+                    document.getElementById('screenshotImage').src = url;
+                    document.getElementById('screenshotModal').style.display = 'flex';
+                    
+                    showToast('Image captured', 'success');
+                } catch (error) {
+                    showToast('Capture failed: ' + error, 'error');
                 }
             } else {
-                errorMsg.classList.remove('show');
+                showToast('Connect to camera first', 'warning');
             }
         }
 
-        // Khôi phục kết nối cuối cùng
-        function restoreLastConnection() {
-            const lastIP = localStorage.getItem('lastESP_IP');
-            const lastPort = localStorage.getItem('lastESP_Port');
+        function downloadScreenshot() {
+            const img = document.getElementById('screenshotImage');
+            const link = document.createElement('a');
+            link.download = `esp32-cam-${Date.now()}.jpg`;
+            link.href = img.src;
+            link.click();
+        }
+
+        async function setQuality(quality) {
+            if (state.cameraIp) {
+                try {
+                    await fetch(`http://${state.cameraIp}/control?quality=${quality}`);
+                    showToast(`Quality set to ${quality}`, 'success');
+                } catch (error) {
+                    showToast('Failed to set quality', 'error');
+                }
+            } else if (state.mqttConnected) {
+                sendRemoteCommand(`quality:${quality}`);
+            }
+        }
+
+        async function setFPS(fps) {
+            if (state.cameraIp) {
+                try {
+                    await fetch(`http://${state.cameraIp}/control?fps=${fps}`);
+                    showToast(`FPS set to ${fps}`, 'success');
+                } catch (error) {
+                    showToast('Failed to set FPS', 'error');
+                }
+            } else if (state.mqttConnected) {
+                sendRemoteCommand(`fps:${fps}`);
+            }
+        }
+
+        async function applyCameraSettings() {
+            if (state.cameraIp) {
+                const quality = document.getElementById('qualitySlider').value;
+                const fps = document.getElementById('fpsSlider').value;
+                
+                try {
+                    await fetch(`http://${state.cameraIp}/control?quality=${quality}&fps=${fps}`);
+                    showToast('Settings applied', 'success');
+                } catch (error) {
+                    showToast('Failed to apply settings', 'error');
+                }
+            } else {
+                showToast('Connect to camera first', 'warning');
+            }
+        }
+
+        async function loadDeviceInfo() {
+            if (!state.cameraIp) return;
             
-            if (lastIP) {
-                document.getElementById('espIp').value = lastIP;
-                if (lastPort) {
-                    document.getElementById('espPort').value = lastPort;
+            try {
+                const response = await fetch(`http://${state.cameraIp}/status`);
+                const data = await response.json();
+                
+                document.getElementById('infoDeviceId').textContent = data.id || '-';
+                document.getElementById('infoIp').textContent = data.ip || '-';
+                document.getElementById('infoMac').textContent = data.mac || '-';
+                document.getElementById('infoRemoteTopic').textContent = 
+                    `esp32cam/${data.id}/remote/image`;
+                document.getElementById('rssiValue').textContent = data.rssi || '-';
+                document.getElementById('remoteViewers').textContent = data.remote_viewers || '0';
+                
+                state.remoteViewers = data.remote_viewers || 0;
+                
+            } catch (error) {
+                console.log('Could not load device info');
+            }
+        }
+
+        // ================= ADVANCED =================
+        function rebootCamera() {
+            if (confirm('Reboot camera?')) {
+                if (state.cameraIp) {
+                    fetch(`http://${state.cameraIp}/control?reboot=1`);
+                    showToast('Rebooting camera...', 'warning');
+                    setTimeout(() => window.location.reload(), 5000);
+                } else if (state.mqttConnected) {
+                    sendRemoteCommand('reboot');
                 }
             }
         }
 
-        // Xử lý khi trang tải
-        window.onload = function() {
-            restoreLastConnection();
+        // ================= INITIALIZATION =================
+        document.addEventListener('DOMContentLoaded', () => {
+            showPage('local');
             
-            // Tự động kết nối nếu có IP đã lưu
-            const lastIP = localStorage.getItem('lastESP_IP');
-            if (lastIP) {
-                setTimeout(() => {
-                    connectToESP();
-                }, 1000);
+            // Load saved settings
+            const savedIp = localStorage.getItem('cameraIp');
+            if (savedIp) {
+                document.getElementById('cameraIp').value = savedIp;
+                state.cameraIp = savedIp;
             }
-        };
+            
+            // Start status updates
+            setInterval(() => {
+                if (state.cameraIp && state.currentPage === 'local') {
+                    loadDeviceInfo();
+                }
+            }, 5000);
+        });
 
-        // Xử lý khi thoát trang
-        window.onbeforeunload = function() {
-            if (isStreaming) {
-                stopStream();
-            }
-            if (connectionCheckInterval) {
-                clearInterval(connectionCheckInterval);
-            }
-        };
-
-        // Hỗ trợ nhấn Enter để kết nối
-        document.getElementById('espIp').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                connectToESP();
+        // Save camera IP
+        window.addEventListener('beforeunload', () => {
+            if (state.cameraIp) {
+                localStorage.setItem('cameraIp', state.cameraIp);
             }
         });
 
-        document.getElementById('espPort').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                connectToESP();
-            }
-        });
+        // Expose functions to global scope
+        window.showPage = showPage;
+        window.connectDirect = connectDirect;
+        window.startMjpeg = startMjpeg;
+        window.connectWebSocket = connectWebSocket;
+        window.stopStream = stopStream;
+        window.toggleFlash = toggleFlash;
+        window.captureImage = captureImage;
+        window.setQuality = setQuality;
+        window.setFPS = setFPS;
+        window.applyCameraSettings = applyCameraSettings;
+        window.rebootCamera = rebootCamera;
+        window.closeModal = closeModal;
+        window.downloadScreenshot = downloadScreenshot;
+        window.handleRemoteBrokerChange = handleRemoteBrokerChange;
+        window.connectRemote = connectRemote;
+        window.disconnectRemote = disconnectRemote;
+        window.sendRemoteCommand = sendRemoteCommand;
+        window.scanRemoteDevices = scanRemoteDevices;
+        window.selectRemoteDevice = selectRemoteDevice;
     </script>
 </body>
 </html>
