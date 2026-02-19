@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ESP32-CAM Remote Viewer</title>
+    
+    <!-- MQTT Library -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            padding: 20px;
+        }
+
+        .nav-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 20px;
+            font-weight: 600;
+            color: #4a6fa5;
+        }
+
+        .mode-selector {
+            display: flex;
+            gap: 10px;
+            background: #f0f0f0;
+            padding: 5px;
+            border-radius: 10px;
+        }
+
+        .mode-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: transparent;
+            color: #666;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .mode-btn.active {
+            background: #4a6fa5;
+            color: white;
+        }
+
+        .main-panel {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .main-panel {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .video-panel {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .video-header {
+            background: linear-gradient(135deg, #4a6fa5, #166088);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-online {
+            background: rgba(40, 167, 69, 0.2);
+            color: #4caf50;
+        }
+
+        .status-remote {
+            background: rgba(74, 199, 199, 0.2);
+            color: #4ac7c7;
+        }
+
+        .status-offline {
+            background: rgba(220, 53, 69, 0.2);
+            color: #f44336;
+        }
+
+        .video-container {
+            background: #000;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            aspect-ratio: 4/3;
+        }
+
+        #videoStream {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        .placeholder {
+            text-align: center;
+            color: #666;
+            padding: 40px;
+        }
+
+        .placeholder i {
+            font-size: 64px;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .video-controls {
+            padding: 20px;
+            background: #f8f9fa;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+        }
+
+        .control-panel {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .panel-header {
+            background: linear-gradient(135deg, #4a6fa5, #166088);
+            color: white;
+            padding: 15px 20px;
+            font-weight: 600;
+        }
+
+        .panel-content {
+            padding: 20px;
+        }
+
+        .section {
+            margin-bottom: 25px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #4a6fa5;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: #4a6fa5;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+        }
+
+        .btn-primary { background: #4a6fa5; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-warning { background: #ffc107; color: #333; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-remote { background: #4ac7c7; color: white; }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #4a6fa5;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #666;
+        }
+
+        .tab-bar {
+            display: flex;
+            gap: 5px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            padding: 5px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+
+        .tab.active {
+            background: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            color: #4a6fa5;
+            font-weight: 600;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .remote-section {
+            background: #e8f4f4;
+            border-left: 4px solid #4ac7c7;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .device-list {
+            max-height: 200px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+
+        .device-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #4ac7c7;
+        }
+
+        .device-item.online {
+            border-left-color: #28a745;
+        }
+
+        .device-item.offline {
+            border-left-color: #dc3545;
+            opacity: 0.7;
+        }
+
+        .device-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .device-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #28a745;
+        }
+
+        .device-dot.offline {
+            background: #dc3545;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 14px;
+            z-index: 9999;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            display: none;
+        }
+
+        .toast.show {
+            display: block;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translate(-50%, 20px);
+            }
+            to {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+        }
+
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #4a6fa5;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="nav-container">
+            <div class="logo">
+                <span>📷 ESP32-CAM Remote Viewer</span>
+            </div>
+            <div class="mode-selector">
+                <button class="mode-btn active" onclick="switchMode('local')">📍 Local</button>
+                <button class="mode-btn" onclick="switchMode('remote')">🌐 Remote</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-panel">
+        <!-- Video Panel -->
+        <div class="video-panel">
+            <div class="video-header">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span id="streamTitle">📹 Local Stream</span>
+                </div>
+                <div class="status-badge status-offline" id="streamStatus">
+                    <span>●</span>
+                    <span>Offline</span>
+                </div>
+            </div>
+            
+            <div class="video-container" id="videoContainer">
+                <img id="videoStream" alt="Live Stream">
+                <div class="placeholder" id="videoPlaceholder">
+                    <div style="font-size: 48px;">📹</div>
+                    <h3>No Stream</h3>
+                    <p>Select mode and connect</p>
+                </div>
+            </div>
+            
+            <div class="stats-grid" id="statsPanel">
+                <div class="stat-card">
+                    <div class="stat-value" id="fpsValue">0</div>
+                    <div class="stat-label">FPS</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="delayValue">0</div>
+                    <div class="stat-label">Delay (ms)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="qualityValue">-</div>
+                    <div class="stat-label">Quality</div>
+                </div>
+            </div>
+            
+            <!-- Local Controls (shown in local mode) -->
+            <div id="localControls" class="video-controls">
+                <button class="btn btn-primary" onclick="connectLocal('mjpeg')">
+                    <span>▶</span> MJPEG
+                </button>
+                <button class="btn btn-success" onclick="connectLocal('websocket')">
+                    <span>🔌</span> WebSocket
+                </button>
+                <button class="btn btn-warning" onclick="controlCamera('flash')">
+                    <span>💡</span> Flash
+                </button>
+                <button class="btn btn-info" onclick="captureImage()">
+                    <span>📸</span> Capture
+                </button>
+                <button class="btn btn-danger" onclick="stopStream()">
+                    <span>⏹️</span> Stop
+                </button>
+            </div>
+            
+            <!-- Remote Controls (shown in remote mode) -->
+            <div id="remoteControls" class="video-controls" style="display: none;">
+                <button class="btn btn-remote" onclick="connectRemote()">
+                    <span>🌐</span> Connect Remote
+                </button>
+                <button class="btn btn-warning" onclick="controlRemote('flash')">
+                    <span>💡</span> Flash
+                </button>
+                <button class="btn btn-info" onclick="captureRemote()">
+                    <span>📸</span> Capture
+                </button>
+                <button class="btn btn-danger" onclick="disconnectRemote()">
+                    <span>⏹️</span> Disconnect
+                </button>
+            </div>
+        </div>
+        
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <div class="panel-header">
+                <span id="panelTitle">📍 Local Connection</span>
+            </div>
+            
+            <div class="panel-content">
+                <!-- Local Mode Panel -->
+                <div id="localPanel">
+                    <div class="section">
+                        <div class="section-title">
+                            <span>🔌 Camera Connection</span>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Camera IP:</label>
+                            <input type="text" id="cameraIp" class="input-field" 
+                                   placeholder="192.168.x.x" value="192.168.4.1">
+                        </div>
+                        <button class="btn btn-primary" onclick="connectLocal('direct')">
+                            Connect Direct
+                        </button>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">
+                            <span>⚙️ Camera Settings</span>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Quality (1-63):</label>
+                            <input type="range" id="qualitySlider" min="1" max="63" value="12" 
+                                   oninput="document.getElementById('qualityVal').innerText=this.value">
+                            <span id="qualityVal">12</span>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">FPS (1-30):</label>
+                            <input type="range" id="fpsSlider" min="1" max="30" value="10"
+                                   oninput="document.getElementById('fpsVal').innerText=this.value">
+                            <span id="fpsVal">10</span>
+                        </div>
+                        <button class="btn btn-success" onclick="applyLocalSettings()">
+                            Apply Settings
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Remote Mode Panel -->
+                <div id="remotePanel" style="display: none;">
+                    <div class="section">
+                        <div class="section-title">
+                            <span>🌐 Remote Connection</span>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Relay Server:</label>
+                            <select id="relayServer" class="input-field" onchange="handleRelayChange()">
+                                <option value="broker.emqx.io">broker.emqx.io (Global)</option>
+                                <option value="test.mosquitto.org">test.mosquitto.org</option>
+                                <option value="broker.hivemq.com">broker.hivemq.com</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                        </div>
+                        
+                        <div id="customRelayGroup" style="display: none;">
+                            <div class="input-group">
+                                <label class="input-label">Custom Server:</label>
+                                <input type="text" id="customRelay" class="input-field" 
+                                       placeholder="broker.emqx.io">
+                            </div>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label class="input-label">Device ID:</label>
+                            <input type="text" id="remoteDeviceId" class="input-field" 
+                                   placeholder="cam-xxxxxx">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label class="input-label">Access Key (optional):</label>
+                            <input type="password" id="accessKey" class="input-field">
+                        </div>
+                        
+                        <button class="btn btn-remote" onclick="scanRemoteDevices()">
+                            🔍 Scan Devices
+                        </button>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">
+                            <span>📱 Available Remote Devices</span>
+                        </div>
+                        <div class="device-list" id="remoteDeviceList">
+                            <div class="loader"></div>
+                            <p style="text-align: center; color: #666;">Scanning for devices...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="remote-section" id="remoteStatus">
+                        <strong>Status:</strong> Disconnected<br>
+                        <small>Connect to view remote stream</small>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="section">
+                    <div class="section-title">
+                        <span>ℹ️ Info</span>
+                    </div>
+                    <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; font-size: 13px;">
+                        <p><strong>Mode:</strong> <span id="currentMode">Local</span></p>
+                        <p><strong>Connection:</strong> <span id="connectionStatus">Not connected</span></p>
+                        <p><strong>Device ID:</strong> <span id="currentDeviceId">-</span></p>
+                        <p><strong>Uptime:</strong> <span id="uptimeDisplay">0s</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <script>
+        // ================= STATE =================
+        const state = {
+            mode: 'local',
+            localConnected: false,
+            remoteConnected: false,
+            wsConnection: null,
+            mqttClient: null,
+            cameraIp: '192.168.4.1',
+            deviceId: '',
+            fps: 0,
+            frameCount: 0,
+            lastFrameTime: Date.now(),
+            streamActive: false,
+            flashState: false,
+            settings: {
+                quality: 12,
+                fps: 10
+            },
+            reconnectAttempts: 0,
+            frameTimer: null
+        };
+
+        // ================= UI FUNCTIONS =================
+        function showToast(msg, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.style.background = type === 'error' ? '#f44336' : 
+                                   type === 'success' ? '#4caf50' : 
+                                   type === 'remote' ? '#4ac7c7' : '#333';
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function switchMode(mode) {
+            state.mode = mode;
+            
+            // Update buttons
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update UI
+            if (mode === 'local') {
+                document.getElementById('localControls').style.display = 'grid';
+                document.getElementById('remoteControls').style.display = 'none';
+                document.getElementById('localPanel').style.display = 'block';
+                document.getElementById('remotePanel').style.display = 'none';
+                document.getElementById('panelTitle').innerHTML = '📍 Local Connection';
+                document.getElementById('streamTitle').innerHTML = '📹 Local Stream';
+                document.getElementById('currentMode').innerHTML = 'Local';
+                stopStream();
+            } else {
+                document.getElementById('localControls').style.display = 'none';
+                document.getElementById('remoteControls').style.display = 'grid';
+                document.getElementById('localPanel').style.display = 'none';
+                document.getElementById('remotePanel').style.display = 'block';
+                document.getElementById('panelTitle').innerHTML = '🌐 Remote Connection';
+                document.getElementById('streamTitle').innerHTML = '🌐 Remote Stream';
+                document.getElementById('currentMode').innerHTML = 'Remote';
+                disconnectRemote();
+            }
+        }
+
+        // ================= LOCAL FUNCTIONS =================
+        function connectLocal(type) {
+            const ip = document.getElementById('cameraIp').value;
+            if (!ip) {
+                showToast('Please enter camera IP', 'warning');
+                return;
+            }
+            
+            state.cameraIp = ip;
+            
+            if (type === 'direct') {
+                // Test connection
+                fetch(`http://${ip}/status`)
+                    .then(res => res.json())
+                    .then(data => {
+                        state.deviceId = data.id;
+                        document.getElementById('currentDeviceId').innerHTML = data.id;
+                        document.getElementById('qualityValue').innerHTML = data.quality;
+                        updateStreamStatus(true, 'local');
+                        showToast('Connected to camera', 'success');
+                        
+                        // Load settings
+                        document.getElementById('qualitySlider').value = data.quality;
+                        document.getElementById('fpsSlider').value = data.target_fps;
+                        document.getElementById('qualityVal').innerHTML = data.quality;
+                        document.getElementById('fpsVal').innerHTML = data.target_fps;
+                    })
+                    .catch(err => {
+                        showToast('Connection failed', 'error');
+                    });
+            } else if (type === 'mjpeg') {
+                const img = document.getElementById('videoStream');
+                const placeholder = document.getElementById('videoPlaceholder');
+                img.src = `http://${ip}/stream?t=${Date.now()}`;
+                img.style.display = 'block';
+                placeholder.style.display = 'none';
+                state.streamActive = true;
+                updateStreamStatus(true, 'mjpeg');
+                showToast('MJPEG stream started', 'success');
+                startStatsMonitor();
+            } else if (type === 'websocket') {
+                if (state.wsConnection) state.wsConnection.close();
+                
+                state.wsConnection = new WebSocket(`ws://${ip}:8080`);
+                
+                state.wsConnection.onopen = () => {
+                    updateStreamStatus(true, 'websocket');
+                    showToast('WebSocket connected', 'success');
+                    state.streamActive = true;
+                    startStatsMonitor();
+                };
+                
+                state.wsConnection.onmessage = (event) => {
+                    if (event.data instanceof Blob) {
+                        const url = URL.createObjectURL(event.data);
+                        const img = document.getElementById('videoStream');
+                        const placeholder = document.getElementById('videoPlaceholder');
+                        img.src = url;
+                        img.style.display = 'block';
+                        placeholder.style.display = 'none';
+                        state.frameCount++;
+                    }
+                };
+                
+                state.wsConnection.onerror = () => {
+                    showToast('WebSocket error', 'error');
+                };
+            }
+        }
+
+        async function controlCamera(action) {
+            if (!state.cameraIp) {
+                showToast('Not connected', 'warning');
+                return;
+            }
+            
+            if (action === 'flash') {
+                state.flashState = !state.flashState;
+                try {
+                    await fetch(`http://${state.cameraIp}/control?flash=${state.flashState ? 1 : 0}`);
+                    showToast(`Flash ${state.flashState ? 'ON' : 'OFF'}`, 'success');
+                } catch (err) {
+                    showToast('Failed', 'error');
+                }
+            }
+        }
+
+        async function applyLocalSettings() {
+            const quality = document.getElementById('qualitySlider').value;
+            const fps = document.getElementById('fpsSlider').value;
+            
+            try {
+                await fetch(`http://${state.cameraIp}/control?quality=${quality}&fps=${fps}`);
+                showToast('Settings applied', 'success');
+            } catch (err) {
+                showToast('Failed', 'error');
+            }
+        }
+
+        // ================= REMOTE FUNCTIONS =================
+        function handleRelayChange() {
+            const select = document.getElementById('relayServer');
+            const customGroup = document.getElementById('customRelayGroup');
+            customGroup.style.display = select.value === 'custom' ? 'block' : 'none';
+        }
+
+        function scanRemoteDevices() {
+            const server = document.getElementById('relayServer').value;
+            const customServer = document.getElementById('customRelay').value;
+            const broker = server === 'custom' ? customServer : server;
+            
+            if (!broker) {
+                showToast('Please select server', 'warning');
+                return;
+            }
+            
+            document.getElementById('remoteDeviceList').innerHTML = '<div class="loader"></div><p>Scanning...</p>';
+            
+            // Connect to MQTT to scan
+            const clientId = 'scanner_' + Math.random().toString(36).substring(7);
+            const mqtt = mqtt.connect(`ws://${broker}:8083`, {
+                clientId: clientId,
+                keepalive: 30,
+                reconnectPeriod: 5000
+            });
+            
+            mqtt.on('connect', () => {
+                mqtt.subscribe('esp32cam/relay/+/announce');
+                mqtt.subscribe('esp32cam/discover/response');
+                mqtt.publish('esp32cam/discover', 'scan');
+                
+                setTimeout(() => {
+                    // Mock devices for demo
+                    const devices = [
+                        { id: 'cam-123456', name: 'Living Room Cam', online: true, lastSeen: '2s ago' },
+                        { id: 'cam-789012', name: 'Garden Cam', online: true, lastSeen: '5s ago' },
+                        { id: 'cam-345678', name: 'Garage Cam', online: false, lastSeen: '1m ago' }
+                    ];
+                    
+                    displayRemoteDevices(devices);
+                    mqtt.end();
+                }, 3000);
+            });
+            
+            mqtt.on('message', (topic, message) => {
+                // Handle real devices
+            });
+        }
+
+        function displayRemoteDevices(devices) {
+            const list = document.getElementById('remoteDeviceList');
+            
+            if (devices.length === 0) {
+                list.innerHTML = '<p style="text-align: center; color: #666;">No devices found</p>';
+                return;
+            }
+            
+            list.innerHTML = devices.map(dev => `
+                <div class="device-item ${dev.online ? 'online' : 'offline'}">
+                    <div class="device-info">
+                        <span class="device-dot ${dev.online ? '' : 'offline'}"></span>
+                        <div>
+                            <strong>${dev.name}</strong><br>
+                            <small>${dev.id}</small>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-remote" 
+                            onclick="selectRemoteDevice('${dev.id}')" 
+                            ${!dev.online ? 'disabled' : ''}>
+                        Connect
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function selectRemoteDevice(deviceId) {
+            document.getElementById('remoteDeviceId').value = deviceId;
+            showToast(`Selected: ${deviceId}`, 'success');
+        }
+
+        function connectRemote() {
+            const server = document.getElementById('relayServer').value;
+            const customServer = document.getElementById('customRelay').value;
+            const deviceId = document.getElementById('remoteDeviceId').value;
+            const accessKey = document.getElementById('accessKey').value;
+            
+            const broker = server === 'custom' ? customServer : server;
+            
+            if (!broker || !deviceId) {
+                showToast('Please enter server and device ID', 'warning');
+                return;
+            }
+            
+            showToast('Connecting to remote...', 'info');
+            
+            // Connect to MQTT relay
+            const clientId = 'viewer_' + Math.random().toString(36).substring(7);
+            state.mqttClient = mqtt.connect(`ws://${broker}:8083`, {
+                clientId: clientId,
+                keepalive: 30,
+                reconnectPeriod: 5000,
+                username: accessKey || undefined
+            });
+            
+            state.mqttClient.on('connect', () => {
+                state.remoteConnected = true;
+                state.deviceId = deviceId;
+                
+                // Subscribe to streams
+                state.mqttClient.subscribe(`esp32cam/relay/${deviceId}/stream`);
+                state.mqttClient.subscribe(`esp32cam/relay/${deviceId}/preview`);
+                state.mqttClient.subscribe(`esp32cam/relay/${deviceId}/status`);
+                
+                // Request stream start
+                state.mqttClient.publish(`esp32cam/relay/${deviceId}/control`, 'stream_start');
+                state.mqttClient.publish(`esp32cam/relay/${deviceId}/control`, 'request_frame');
+                
+                updateStreamStatus(true, 'remote');
+                document.getElementById('remoteStatus').innerHTML = `
+                    <strong>Status:</strong> Connected to ${deviceId}<br>
+                    <small>Server: ${broker}</small>
+                `;
+                document.getElementById('currentDeviceId').innerHTML = deviceId;
+                showToast('Remote connected', 'success');
+                
+                startStatsMonitor();
+            });
+            
+            state.mqttClient.on('message', (topic, message) => {
+                if (topic.includes('/stream') || topic.includes('/preview')) {
+                    const blob = new Blob([message], { type: 'image/jpeg' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const img = document.getElementById('videoStream');
+                    const placeholder = document.getElementById('videoPlaceholder');
+                    img.src = url;
+                    img.style.display = 'block';
+                    placeholder.style.display = 'none';
+                    
+                    state.frameCount++;
+                    
+                    // Update delay
+                    const now = Date.now();
+                    if (state.lastFrameTime) {
+                        const delay = now - state.lastFrameTime;
+                        document.getElementById('delayValue').innerHTML = delay;
+                    }
+                    state.lastFrameTime = now;
+                } else if (topic.includes('/status')) {
+                    try {
+                        const status = JSON.parse(message.toString());
+                        document.getElementById('qualityValue').innerHTML = status.quality || '-';
+                    } catch (e) {}
+                }
+            });
+            
+            state.mqttClient.on('error', (err) => {
+                showToast('Remote error: ' + err, 'error');
+            });
+        }
+
+        function controlRemote(action) {
+            if (!state.remoteConnected || !state.mqttClient) {
+                showToast('Not connected', 'warning');
+                return;
+            }
+            
+            if (action === 'flash') {
+                state.flashState = !state.flashState;
+                state.mqttClient.publish(`esp32cam/relay/${state.deviceId}/control`, 
+                                        state.flashState ? 'flash_on' : 'flash_off');
+                showToast(`Flash ${state.flashState ? 'ON' : 'OFF'}`, 'success');
+            }
+        }
+
+        function captureRemote() {
+            if (!state.remoteConnected || !state.mqttClient) {
+                showToast('Not connected', 'warning');
+                return;
+            }
+            
+            state.mqttClient.publish(`esp32cam/relay/${state.deviceId}/control`, 'request_frame');
+            showToast('Capturing...', 'info');
+        }
+
+        function disconnectRemote() {
+            if (state.mqttClient) {
+                if (state.deviceId) {
+                    state.mqttClient.publish(`esp32cam/relay/${state.deviceId}/control`, 'stream_stop');
+                }
+                state.mqttClient.end();
+                state.mqttClient = null;
+            }
+            
+            state.remoteConnected = false;
+            updateStreamStatus(false);
+            document.getElementById('remoteStatus').innerHTML = `
+                <strong>Status:</strong> Disconnected<br>
+                <small>Connect to view remote stream</small>
+            `;
+            showToast('Remote disconnected', 'info');
+        }
+
+        // ================= COMMON FUNCTIONS =================
+        function stopStream() {
+            const img = document.getElementById('videoStream');
+            const placeholder = document.getElementById('videoPlaceholder');
+            img.style.display = 'none';
+            img.src = '';
+            placeholder.style.display = 'flex';
+            
+            if (state.wsConnection) {
+                state.wsConnection.close();
+                state.wsConnection = null;
+            }
+            
+            state.streamActive = false;
+            updateStreamStatus(false);
+            
+            if (state.frameTimer) {
+                clearInterval(state.frameTimer);
+                state.frameTimer = null;
+            }
+        }
+
+        async function captureImage() {
+            if (!state.cameraIp) {
+                showToast('Not connected', 'warning');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`http://${state.cameraIp}/capture?t=${Date.now()}`);
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+                showToast('Captured', 'success');
+            } catch (err) {
+                showToast('Capture failed', 'error');
+            }
+        }
+
+        function updateStreamStatus(online, type = 'local') {
+            const status = document.getElementById('streamStatus');
+            if (online) {
+                status.className = `status-badge status-${type === 'remote' ? 'remote' : 'online'}`;
+                status.innerHTML = `<span>●</span><span>Streaming ${type.toUpperCase()}</span>`;
+            } else {
+                status.className = 'status-badge status-offline';
+                status.innerHTML = '<span>●</span><span>Offline</span>';
+            }
+            document.getElementById('connectionStatus').innerHTML = online ? 'Connected' : 'Not connected';
+        }
+
+        function startStatsMonitor() {
+            if (state.frameTimer) clearInterval(state.frameTimer);
+            
+            state.frameTimer = setInterval(() => {
+                if (state.streamActive) {
+                    const fps = state.frameCount;
+                    document.getElementById('fpsValue').innerHTML = fps;
+                    state.frameCount = 0;
+                    
+                    // Update uptime
+                    const uptime = Math.floor(Date.now() / 1000);
+                    document.getElementById('uptimeDisplay').innerHTML = uptime + 's';
+                }
+            }, 1000);
+        }
+
+        function applyLocalSettings() {
+            // Implement settings apply
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Load saved IP
+            const savedIp = localStorage.getItem('cameraIp');
+            if (savedIp) {
+                document.getElementById('cameraIp').value = savedIp;
+                state.cameraIp = savedIp;
+            }
+            
+            // Auto scan remote devices
+            setTimeout(() => {
+                if (state.mode === 'remote') {
+                    scanRemoteDevices();
+                }
+            }, 1000);
+        });
+
+        // Save IP
+        window.addEventListener('beforeunload', () => {
+            localStorage.setItem('cameraIp', document.getElementById('cameraIp').value);
+        });
+    </script>
+</body>
+</html>
